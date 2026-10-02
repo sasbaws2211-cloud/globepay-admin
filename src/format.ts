@@ -37,28 +37,3 @@ export function tierLabel(t: string | null | undefined): string {
 }
 
 export type Tone = 'good' | 'bad' | 'warn' | 'info' | 'muted';
-
-// Status -> colour, shared by local and Go Global transfers.
-export function statusTone(status: string): Tone {
-  switch (status) {
-    case 'completed':
-    case 'refunded':
-      return 'good';
-    case 'failed':
-    case 'delivery_failed':
-      return 'bad';
-    case 'payout_pending':
-    case 'processing':
-    case 'refund_pending':
-      return 'info';
-    case 'awaiting_recipient_payout_info':
-      return 'warn';
-    default:
-      return 'muted';
-  }
-}
-
-export const STATUS_OPTIONS: Record<'local' | 'crossborder', string[]> = {
-  local: ['pending_payment', 'awaiting_recipient_payout_info', 'payout_pending', 'completed', 'failed'],
-  crossborder: ['pending_payment', 'processing', 'completed', 'failed', 'delivery_failed', 'refund_pending', 'refunded'],
-};

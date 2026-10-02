@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, errorMessage, qs } from '../api';
+import { api, errorMessage } from '../api';
 import { useAuth } from '../auth';
-import { date, dateTime, ghs, TIER_LABEL, tierLabel } from '../format';
-import { TransactionDetail, TransactionTable } from '../transactions';
-import type { AdminTransaction, AdminTransactionPage, AdminUserDetail, KycTier } from '../types';
-import { Alert, Empty, Field, Modal, Spinner } from '../ui';
+import { date, ghs, TIER_LABEL } from '../format';
+import type { AdminUserDetail, KycTier } from '../types';
+import { Alert, Field, Modal, Spinner } from '../ui';
 import { TierBadge, UserStatusBadge } from './Users';
 
 const TIER_HELP: Record<KycTier, string> = {
@@ -13,27 +12,6 @@ const TIER_HELP: Record<KycTier, string> = {
   phone_verified: 'GHS 50,000 a day, no monthly limit',
   id_verified: 'No limits',
 };
-
-function LimitBar({ label, used, limit }: { label: string; used: string; limit: string | null }) {
-  const u = parseFloat(used);
-  const l = limit === null ? null : parseFloat(limit);
-  const pct = l ? Math.min(100, (u / l) * 100) : 0;
-  return (
-    <div className="limit">
-      <div className="limit-head">
-        <span>{label}</span>
-        <span className="muted">
-          {ghs(used)} {l === null ? 'used · no limit' : `of ${ghs(l)}`}
-        </span>
-      </div>
-      {l !== null && (
-        <div className="meter" role="meter" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} aria-label={`${label} used`}>
-          <span className={`meter-fill ${pct >= 90 ? 'meter-bad' : pct >= 70 ? 'meter-warn' : ''}`} style={{ width: `${pct}%` }} />
-        </div>
-      )}
-    </div>
-  );
-}
 
 function KycModal({ user, onClose, onSaved }: { user: AdminUserDetail; onClose: () => void; onSaved: (msg: string) => void }) {
   const [tier, setTier] = useState<KycTier>(user.kyc_tier);
@@ -128,21 +106,14 @@ export default function UserDetail() {
   const { id = '' } = useParams();
   const { me } = useAuth();
   const [user, setUser] = useState<AdminUserDetail | null>(null);
-  const [txs, setTxs] = useState<AdminTransactionPage | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [modal, setModal] = useState<'kyc' | 'status' | null>(null);
-  const [openTx, setOpenTx] = useState<AdminTransaction | null>(null);
 
   const load = useCallback(async () => {
     setError('');
     try {
-      const [u, t] = await Promise.all([
-        api<AdminUserDetail>(`/admin/users/${id}`),
-        api<AdminTransactionPage>(`/admin/transactions${qs({ user_id: id, limit: 10 })}`),
-      ]);
-      setUser(u);
-      setTxs(t);
+      setUser(await api<AdminUserDetail>(`/admin/users/${id}`));
     } catch (err) {
       setError(errorMessage(err));
     }
@@ -160,6 +131,7 @@ export default function UserDetail() {
 
   if (!user) return error ? <div className="page"><Alert tone="error">{error}</Alert></div> : <Spinner label="Loading user…" />;
 
+  // Also blocked server-side on newer backends; the deployed one doesn't check yet.
   const isSelf = me?.id === user.id;
   const closed = !!user.closed_at;
 
@@ -193,7 +165,7 @@ export default function UserDetail() {
       <div className="grid-2">
         <section className="card">
           <div className="card-head">
-            <h2>Verification & limits</h2>
+            <h2>Verification</h2>
             <button className="btn btn-primary btn-sm" onClick={() => setModal('kyc')} disabled={isSelf || closed}>
               Change tier
             </button>
@@ -201,37 +173,16 @@ export default function UserDetail() {
           <dl className="kvs">
             <div className="kv">
               <dt>Tier</dt>
-              <dd>{TIER_LABEL[user.kyc_tier]}</dd>
+              <dd>{TIER_LABEL[user.kyc_tier] ?? user.kyc_tier}</dd>
             </div>
             <div className="kv">
-              <dt>Phone</dt>
-              <dd>{user.is_phone_verified ? 'Verified by SMS' : 'Not verified'}</dd>
+              <dt>Limits</dt>
+              <dd>{TIER_HELP[user.kyc_tier] ?? '—'}</dd>
             </div>
           </dl>
-          {user.limits && (
-            <>
-              {!user.limits.enforced && <Alert tone="info">Limits are switched off platform-wide (ENFORCE_TRANSACTION_LIMITS). Usage is still recorded.</Alert>}
-              <LimitBar label="Last 24 hours" used={user.limits.daily_used} limit={user.limits.daily_limit} />
-              <LimitBar label="Last 30 days" used={user.limits.monthly_used} limit={user.limits.monthly_limit} />
-            </>
-          )}
-          <h3 className="subhead">Tier history</h3>
-          {user.kyc_history.length === 0 ? (
-            <p className="muted small">No admin changes. The tier was set at sign-up or by phone verification.</p>
-          ) : (
-            <ul className="timeline">
-              {user.kyc_history.map((h, i) => (
-                <li key={i}>
-                  <div>
-                    <span className="strong">{tierLabel(h.from_tier)} → {tierLabel(h.to_tier)}</span>
-                    <span className="muted"> by {h.admin_name}</span>
-                  </div>
-                  {h.reason && <div className="quote">“{h.reason}”</div>}
-                  <div className="muted small">{dateTime(h.created_at)}</div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <p className="muted small" style={{ marginTop: '0.75rem' }}>
+            Tier changes are listed in the <Link to="/audit">audit log</Link>.
+          </p>
         </section>
 
         <section className="card">
@@ -243,24 +194,6 @@ export default function UserDetail() {
               </button>
             )}
           </div>
-          <div className="mini-stats">
-            <div>
-              <div className="big">{ghs(user.total_sent_ghs)}</div>
-              <div className="muted small">sent in total</div>
-            </div>
-            <div>
-              <div className="big">{user.local_sent_count}</div>
-              <div className="muted small">local sent</div>
-            </div>
-            <div>
-              <div className="big">{user.local_received_count}</div>
-              <div className="muted small">local received</div>
-            </div>
-            <div>
-              <div className="big">{user.crossborder_count}</div>
-              <div className="muted small">Go Global</div>
-            </div>
-          </div>
           <dl className="kvs">
             <div className="kv">
               <dt>Vaults</dt>
@@ -268,39 +201,12 @@ export default function UserDetail() {
                 {user.vault_count} · {ghs(user.total_vault_balance)} saved
               </dd>
             </div>
-            <div className="kv">
-              <dt>Payout account</dt>
-              <dd>
-                {user.default_momo_number ? (
-                  <>
-                    <span className="mono">{user.default_momo_number}</span> ({user.default_momo_bank_code}){user.default_account_name && ` · ${user.default_account_name}`}
-                  </>
-                ) : (
-                  <span className="muted">None saved</span>
-                )}
-              </dd>
-            </div>
           </dl>
         </section>
       </div>
 
-      <section className="card card-flush">
-        <div className="card-head card-pad">
-          <h2>Recent transactions</h2>
-          <Link to={`/transactions?q=${encodeURIComponent(user.phone_number)}`} className="btn btn-ghost btn-sm">
-            Search all
-          </Link>
-        </div>
-        {txs && txs.items.length > 0 ? (
-          <TransactionTable items={txs.items} onOpen={setOpenTx} />
-        ) : (
-          <Empty title="No transfers yet" />
-        )}
-      </section>
-
       {modal === 'kyc' && <KycModal user={user} onClose={() => setModal(null)} onSaved={saved} />}
       {modal === 'status' && <StatusModal user={user} onClose={() => setModal(null)} onSaved={saved} />}
-      {openTx && <TransactionDetail tx={openTx} onClose={() => setOpenTx(null)} onChanged={load} />}
     </div>
   );
 }
