@@ -70,6 +70,7 @@ export interface AdminTransaction {
   recipient_detail: string | null;
   payment_reference: string | null;
   failure_reason: string | null;
+  expired: boolean; // unpaid 24h+ checkout (status stays pending_payment)
   created_at: string;
   completed_at: string | null;
 }

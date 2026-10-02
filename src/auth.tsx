@@ -15,6 +15,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [checking, setChecking] = useState(true);
 
+  // Older backends' /auth/me has no is_admin field - ask an admin-only route instead.
+  const isAdmin = useCallback(async (user: Me): Promise<boolean> => {
+    if (typeof user.is_admin === 'boolean') return user.is_admin;
+    try {
+      await api('/admin/stats');
+      return true;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 403) return false;
+      throw err;
+    }
+  }, []);
+
   const signOut = useCallback(() => {
     setToken(null);
     setMe(null);
@@ -32,10 +44,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     api<Me>('/auth/me')
-      .then((user) => (user.is_admin ? setMe(user) : signOut()))
+      .then(async (user) => ((await isAdmin(user)) ? setMe(user) : signOut()))
       .catch(() => signOut())
       .finally(() => setChecking(false));
-  }, [signOut]);
+  }, [signOut, isAdmin]);
 
   const signIn = useCallback(async (phone: string, password: string) => {
     const { access_token } = await api<{ access_token: string }>('/auth/login', {
@@ -44,18 +56,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     setToken(access_token);
     let user: Me;
+    let admin: boolean;
     try {
       user = await api<Me>('/auth/me');
+      admin = await isAdmin(user);
     } catch (err) {
       setToken(null);
       throw err;
     }
-    if (!user.is_admin) {
+    if (!admin) {
       setToken(null);
       throw new ApiError('This account does not have admin access.', 403);
     }
     setMe(user);
-  }, []);
+  }, [isAdmin]);
 
   return <AuthContext.Provider value={{ me, checking, signIn, signOut }}>{children}</AuthContext.Provider>;
 }

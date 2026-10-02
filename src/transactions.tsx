@@ -5,6 +5,12 @@ import { dateTime, ghs, humanize, statusTone } from './format';
 import type { AdminTransaction, AdminTransactionDetail } from './types';
 import { Alert, Badge, Modal, Spinner } from './ui';
 
+/** Status badge; an unpaid checkout over 24h old reads "Expired" (its stored
+ *  status stays pending_payment so a late payment still goes through). */
+export function TxStatus({ t }: { t: Pick<AdminTransaction, 'status' | 'expired'> }) {
+  return t.expired ? <Badge tone="muted">Expired</Badge> : <Badge tone={statusTone(t.status)}>{humanize(t.status)}</Badge>;
+}
+
 export function KindTag({ kind }: { kind: AdminTransaction['kind'] }) {
   return <span className={`kind kind-${kind}`}>{kind === 'local' ? 'Local' : 'Go Global'}</span>;
 }
@@ -49,7 +55,7 @@ export function TransactionTable({
                 {t.recipient_detail && <span className="sub">{t.recipient_detail}</span>}
               </td>
               <td>
-                <Badge tone={statusTone(t.status)}>{humanize(t.status)}</Badge>
+                <TxStatus t={t} />
                 {t.failure_reason && <span className="sub text-bad clamp">{t.failure_reason}</span>}
               </td>
               <td className="muted nowrap">{dateTime(t.created_at)}</td>
@@ -179,7 +185,7 @@ export function TransactionDetail({
                 </div>
               )}
             </div>
-            <Badge tone={statusTone(d.status)}>{humanize(d.status)}</Badge>
+            <TxStatus t={d} />
           </div>
           {d.failure_reason && <Alert tone="error">{d.failure_reason}</Alert>}
 
